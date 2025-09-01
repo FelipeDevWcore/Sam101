@@ -133,9 +133,10 @@ const ConversaoVideos: React.FC = () => {
     try {
       const token = await getToken();
       
-      // Primeiro, sincronizar dados se uma pasta específica foi selecionada
+      // Otimizar carregamento - sincronizar apenas se necessário
       if (selectedFolder) {
         try {
+          console.log(`🔄 Sincronizando pasta ${selectedFolder}...`);
           await fetch(`/api/videos-ssh/sync-database`, {
             method: 'POST',
             headers: {
@@ -144,6 +145,7 @@ const ConversaoVideos: React.FC = () => {
             },
             body: JSON.stringify({ folderId: selectedFolder })
           });
+          console.log(`✅ Sincronização da pasta ${selectedFolder} concluída`);
         } catch (syncError) {
           console.warn('Erro na sincronização:', syncError);
         }
@@ -161,7 +163,16 @@ const ConversaoVideos: React.FC = () => {
         const data = await response.json();
         if (data.success) {
           setVideos(data.videos);
+          console.log(`📊 Carregados ${data.videos.length} vídeos para conversão`);
+          
+          if (data.videos.length === 0) {
+            toast.info('Nenhum vídeo encontrado. Verifique se há vídeos na pasta selecionada.');
+          }
         }
+      } else {
+        const errorData = await response.json();
+        console.error('Erro na resposta da API:', errorData);
+        toast.error('Erro ao carregar vídeos: ' + (errorData.error || 'Erro desconhecido'));
       }
     } catch (error) {
       console.error('Erro ao carregar vídeos:', error);
@@ -1012,31 +1023,15 @@ const ConversaoVideos: React.FC = () => {
 
             {/* Player HTML5 Simples */}
             <div className={`w-full h-full ${isFullscreen ? 'p-0' : 'p-4 pt-16'}`}>
-              <SimpleHTML5Player
-                src={`/api/videos/view-url?video_id=${currentVideo.id}`}
+              <SimpleDirectPlayer
+                src={currentVideo.url}
                 title={currentVideo.nome}
-                isLive={false}
                 autoplay
                 controls
                 className="w-full h-full"
                 onError={(e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
                   console.error('Erro no player:', e);
-                  // Fallback: abrir em nova aba usando nova API
-                  fetch(`/api/videos/view-url?video_id=${currentVideo.id}`, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` }
-                  })
-                  .then(response => response.json())
-                  .then(data => {
-                    if (data.success && data.view_url) {
-                      window.open(data.view_url, '_blank');
-                      toast.info('Abrindo vídeo em nova aba...');
-                    } else {
-                      toast.error('Erro ao carregar vídeo.');
-                    }
-                  })
-                  .catch(() => {
-                    toast.error('Erro ao carregar vídeo.');
-                  });
+                  toast.error('Erro ao carregar vídeo. Tente abrir em nova aba.');
                 }}
                 onReady={() => {
                   console.log('Player de conversão pronto');

@@ -3,7 +3,7 @@ import { ChevronLeft, Upload, Play, Trash2, FolderPlus, Video, Eye, EyeOff, Refr
 import { Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
-import SimpleHTML5Player from '../../components/SimpleHTML5Player';
+import SimpleDirectPlayer from '../../components/SimpleDirectPlayer';
 
 interface Video {
   id: number;
@@ -123,7 +123,7 @@ const GerenciarVideos: React.FC = () => {
     try {
       const token = await getToken();
       
-      // PRIMEIRO: Sincronizar com servidor para garantir dados atualizados
+      // Otimizar sincronização - fazer apenas quando necessário
       console.log(`🔄 Sincronizando pasta ${selectedFolder} com servidor...`);
       
       try {
@@ -141,17 +141,18 @@ const GerenciarVideos: React.FC = () => {
           console.log(`✅ Sincronização concluída:`, syncData);
           
           if (syncData.success) {
-            toast.success(`Sincronização: ${syncData.videos_count} vídeos encontrados`);
+            if (syncData.videos_count > 0) {
+              toast.success(`Sincronização: ${syncData.videos_count} vídeos encontrados`);
+            }
           }
         } else {
           console.warn('Erro na sincronização, continuando com dados do banco...');
         }
       } catch (syncError) {
         console.warn('Erro na sincronização:', syncError);
-        toast.warning('Erro na sincronização, mostrando dados do banco');
       }
       
-      // SEGUNDO: Carregar vídeos do banco (agora sincronizados)
+      // Carregar vídeos do banco
       const response = await fetch(`/api/videos?folder_id=${selectedFolder}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -162,7 +163,7 @@ const GerenciarVideos: React.FC = () => {
         console.log(`📊 Carregados ${data.length} vídeos do banco para exibição`);
         
         if (data.length === 0) {
-          toast.info('Nenhum vídeo encontrado nesta pasta. Verifique se os arquivos estão no servidor.');
+          console.log('Nenhum vídeo encontrado nesta pasta');
         }
       } else {
         console.error('Resposta inválida da API:', data);
@@ -428,16 +429,16 @@ const GerenciarVideos: React.FC = () => {
   const buildWowzaDirectUrl = (video: Video) => {
     if (!video.url) return '';
 
-    // Usar nova API para construir URL
-    return `/api/videos/view-url?video_id=${video.id}`;
+    // Usar URL direta baseada no padrão fornecido
+    return video.url;
   };
 
   // Função para construir URL HLS do Wowza
   const buildWowzaHLSUrl = (video: Video) => {
     if (!video.url) return '';
 
-    // Usar nova API para construir URL
-    return `/api/videos/view-url?video_id=${video.id}`;
+    // Usar URL direta baseada no padrão fornecido
+    return video.url;
   };
 
   const openVideoPlayer = (video: Video) => {
@@ -452,47 +453,62 @@ const GerenciarVideos: React.FC = () => {
   };
 
   const openVideoInNewTab = (video: Video) => {
-    // Usar nova API para obter URL e abrir
-    fetch(`/api/videos/view-url?video_id=${video.id}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` }
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success && data.view_url) {
-        window.open(data.view_url, '_blank');
-      } else {
-        toast.error('URL do vídeo não disponível');
-      }
-    })
-    .catch(error => {
-      console.error('Erro ao obter URL:', error);
-      toast.error('Erro ao obter URL do vídeo');
-    });
+    if (!video.url) {
+      toast.error('URL do vídeo não disponível');
+      return;
+    }
+
+    // Construir URL direta baseada no padrão
+    const cleanPath = video.url.replace(/^\/+/, '').replace(/^(content\/|streaming\/)?/, '');
+    const pathParts = cleanPath.split('/');
+    
+    if (pathParts.length >= 3) {
+      const userLogin = pathParts[0];
+      const folderName = pathParts[1];
+      const fileName = pathParts[2];
+      
+      const finalFileName = fileName.endsWith('.mp4') ? fileName : fileName.replace(/\.[^/.]+$/, '.mp4');
+      const isProduction = window.location.hostname !== 'localhost';
+      const domain = isProduction ? 'samhost.wcore.com.br' : 'stmv1.udicast.com';
+      
+      const directUrl = `https://${domain}:1443/play.php?login=${userLogin}&video=${folderName}/${finalFileName}`;
+      window.open(directUrl, '_blank');
+    } else {
+      toast.error('Formato de URL inválido');
+    }
   };
 
   const downloadVideo = (video: Video) => {
-    // Usar nova API para obter URL e fazer download
-    fetch(`/api/videos/view-url?video_id=${video.id}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` }
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success && data.view_url) {
-        const link = document.createElement('a');
-        link.href = data.view_url;
-        link.download = video.nome;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        toast.success('Download iniciado!');
-      } else {
-        toast.error('URL de download não disponível');
-      }
-    })
-    .catch(error => {
-      console.error('Erro ao obter URL:', error);
-      toast.error('Erro ao obter URL de download');
-    });
+    if (!video.url) {
+      toast.error('URL de download não disponível');
+      return;
+    }
+
+    // Construir URL direta para download
+    const cleanPath = video.url.replace(/^\/+/, '').replace(/^(content\/|streaming\/)?/, '');
+    const pathParts = cleanPath.split('/');
+    
+    if (pathParts.length >= 3) {
+      const userLogin = pathParts[0];
+      const folderName = pathParts[1];
+      const fileName = pathParts[2];
+      
+      const finalFileName = fileName.endsWith('.mp4') ? fileName : fileName.replace(/\.[^/.]+$/, '.mp4');
+      const isProduction = window.location.hostname !== 'localhost';
+      const domain = isProduction ? 'samhost.wcore.com.br' : 'stmv1.udicast.com';
+      
+      const downloadUrl = `https://${domain}:1443/play.php?login=${userLogin}&video=${folderName}/${finalFileName}`;
+      
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = video.nome;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('Download iniciado!');
+    } else {
+      toast.error('Formato de URL inválido para download');
+    }
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -527,20 +543,9 @@ const GerenciarVideos: React.FC = () => {
   useEffect(() => {
     if (!currentVideo) return;
 
-    // Carregar URL usando nova API
-    fetch(`/api/videos/view-url?video_id=${currentVideo.id}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` }
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success && data.view_url) {
-        setVideoUrl(data.view_url);
-        setVideoHlsUrl(data.view_url);
-      }
-    })
-    .catch(error => {
-      console.error('Erro ao carregar URLs:', error);
-    });
+    // Usar URL direta do vídeo
+    setVideoUrl(currentVideo.url);
+    setVideoHlsUrl(currentVideo.url);
   }, [currentVideo]);
 
 
@@ -1131,22 +1136,21 @@ const GerenciarVideos: React.FC = () => {
               )}
             </div>
 
-            {/* Player HTML5 com URL direta do Wowza */}
+            {/* Player HTML5 Simples */}
             <div className={`w-full h-full ${isFullscreen ? 'p-0' : 'p-4 pt-16'}`}>
-              <SimpleHTML5Player
-                src={`/api/videos/view-url?video_id=${currentVideo.id}`}
+              <SimpleDirectPlayer
+                src={currentVideo.url}
                 title={currentVideo.nome}
-                isLive={false}
                 autoplay
                 controls
                 className="w-full h-full"
-                onError={(e) => {
+                onError={(e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
                   console.error('Erro no player:', e);
-                  // Fallback: abrir em nova aba usando nova API
+                  // Abrir em nova aba diretamente
                   openVideoInNewTab(currentVideo);
                 }}
                 onReady={() => {
-                  console.log('Player pronto para reprodução');
+                  console.log('Player de conversão pronto');
                 }}
               />
             </div>

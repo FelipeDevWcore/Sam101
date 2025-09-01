@@ -7,7 +7,7 @@ import {
   AlertCircle, CheckCircle, Wifi, WifiOff, Server, HardDrive
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import SimpleHTML5Player from '../../components/SimpleHTML5Player';
+import SimpleDirectPlayer from '../../components/SimpleDirectPlayer';
 
 interface DashboardStats {
   totalVideos: number;
@@ -63,28 +63,33 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [currentVideoUrl, setCurrentVideoUrl] = useState<string>('');
   const [showPlayer, setShowPlayer] = useState(false);
+  const [loadingStats, setLoadingStats] = useState(false);
 
   const userLogin = user?.usuario || (user?.email ? user.email.split('@')[0] : `user_${user?.id || 'usuario'}`);
 
   useEffect(() => {
     loadDashboardData();
     
-    // Atualizar dados a cada 30 segundos
-    const interval = setInterval(loadDashboardData, 30000);
+    // Atualizar dados a cada 60 segundos (reduzido para melhor performance)
+    const interval = setInterval(loadDashboardData, 60000);
     return () => clearInterval(interval);
   }, []);
 
   const loadDashboardData = async () => {
+    if (loadingStats) return; // Evitar múltiplas chamadas simultâneas
+    
+    setLoadingStats(true);
     try {
       await Promise.all([
         loadStats(),
         loadStreamStatus(),
-        loadRecentVideos()
+        // loadRecentVideos() // Comentado para melhor performance inicial
       ]);
     } catch (error) {
       console.error('Erro ao carregar dados do dashboard:', error);
     } finally {
       setLoading(false);
+      setLoadingStats(false);
     }
   };
 
@@ -92,25 +97,21 @@ const Dashboard: React.FC = () => {
     try {
       const token = await getToken();
       
-      // Carregar estatísticas básicas
-      const [foldersResponse, videosResponse, playlistsResponse] = await Promise.all([
+      // Carregar apenas dados essenciais para melhor performance
+      const [foldersResponse, playlistsResponse] = await Promise.all([
         fetch('/api/folders', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/videos?folder_id=1', { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ ok: false })),
         fetch('/api/playlists', { headers: { Authorization: `Bearer ${token}` } })
       ]);
 
-      let totalVideos = 0;
       let espacoUsado = 0;
+      let totalVideos = 0;
 
       if (foldersResponse.ok) {
         const folders = await foldersResponse.json();
         espacoUsado = folders.reduce((acc: number, folder: any) => acc + (folder.espaco_usado || 0), 0);
+        totalVideos = folders.reduce((acc: number, folder: any) => acc + (folder.video_count_db || 0), 0);
       }
 
-      if (videosResponse.ok) {
-        const videos = await videosResponse.json();
-        totalVideos = Array.isArray(videos) ? videos.length : 0;
-      }
 
       let totalPlaylists = 0;
       if (playlistsResponse.ok) {
@@ -145,9 +146,9 @@ const Dashboard: React.FC = () => {
         // Definir URL do player baseado no status
         if (data.is_live) {
           if (data.stream_type === 'obs' || data.obs_stream?.is_live) {
-            setCurrentVideoUrl(`http://samhost.wcore.com.br:1935/samhost/${userLogin}_live/playlist.m3u8`);
+            setCurrentVideoUrl(`${userLogin}/live/${userLogin}_live.mp4`);
           } else if (data.transmission) {
-            setCurrentVideoUrl(`http://samhost.wcore.com.br:1935/samhost/${userLogin}_playlist/playlist.m3u8`);
+            setCurrentVideoUrl(`${userLogin}/playlist/${userLogin}_playlist.mp4`);
           }
           setShowPlayer(true);
         } else {
@@ -424,10 +425,9 @@ const Dashboard: React.FC = () => {
 
             <div className="aspect-video bg-gray-900 rounded-xl overflow-hidden">
               {showPlayer && currentVideoUrl ? (
-                <SimpleHTML5Player
+                <SimpleDirectPlayer
                   src={currentVideoUrl}
                   title={streamStatus?.transmission?.titulo || 'Transmissão ao Vivo'}
-                  isLive={streamStatus?.is_live || false}
                   autoplay={false}
                   controls={true}
                   className="w-full h-full"
@@ -518,6 +518,15 @@ const Dashboard: React.FC = () => {
           {/* Recent Videos */}
           <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Vídeos Recentes</h3>
+            <div className="flex justify-between items-center mb-4">
+              <span className="text-sm text-gray-600">Últimos vídeos enviados</span>
+              <button
+                onClick={loadRecentVideos}
+                className="text-blue-600 hover:text-blue-800 text-sm"
+              >
+                Carregar
+              </button>
+            </div>
             {recentVideos.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <Video className="h-12 w-12 mx-auto mb-3 text-gray-300" />
@@ -546,8 +555,9 @@ const Dashboard: React.FC = () => {
                     </div>
                     <button
                       onClick={() => {
-                        // Implementar visualização do vídeo
-                        toast.info('Abrindo vídeo...');
+                        // Usar novo player direto
+                        setCurrentVideoUrl(video.url);
+                        setShowPlayer(true);
                       }}
                       className="text-blue-600 hover:text-blue-800"
                     >
