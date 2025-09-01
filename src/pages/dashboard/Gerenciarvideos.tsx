@@ -123,36 +123,7 @@ const GerenciarVideos: React.FC = () => {
     try {
       const token = await getToken();
       
-      // Otimizar sincronização - fazer apenas quando necessário
-      console.log(`🔄 Sincronizando pasta ${selectedFolder} com servidor...`);
-      
-      try {
-        const syncResponse = await fetch(`/api/videos-ssh/sync-database`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({ folderId: selectedFolder })
-        });
-        
-        if (syncResponse.ok) {
-          const syncData = await syncResponse.json();
-          console.log(`✅ Sincronização concluída:`, syncData);
-          
-          if (syncData.success) {
-            if (syncData.videos_count > 0) {
-              toast.success(`Sincronização: ${syncData.videos_count} vídeos encontrados`);
-            }
-          }
-        } else {
-          console.warn('Erro na sincronização, continuando com dados do banco...');
-        }
-      } catch (syncError) {
-        console.warn('Erro na sincronização:', syncError);
-      }
-      
-      // Carregar vídeos do banco
+      // Carregar vídeos diretamente do banco primeiro para melhor performance
       const response = await fetch(`/api/videos?folder_id=${selectedFolder}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -160,10 +131,12 @@ const GerenciarVideos: React.FC = () => {
       
       if (Array.isArray(data)) {
         setVideos(data);
-        console.log(`📊 Carregados ${data.length} vídeos do banco para exibição`);
+        console.log(`📊 Carregados ${data.length} vídeos do banco`);
         
+        // Se não há vídeos, tentar sincronizar
         if (data.length === 0) {
-          console.log('Nenhum vídeo encontrado nesta pasta');
+          console.log('Nenhum vídeo no banco, tentando sincronizar...');
+          await syncFolderVideos();
         }
       } else {
         console.error('Resposta inválida da API:', data);
@@ -177,6 +150,44 @@ const GerenciarVideos: React.FC = () => {
       setVideos([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const syncFolderVideos = async () => {
+    try {
+      const token = await getToken();
+      console.log(`🔄 Sincronizando pasta ${selectedFolder} com servidor...`);
+      
+      const syncResponse = await fetch(`/api/videos-ssh/sync-database`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ folderId: selectedFolder })
+      });
+      
+      if (syncResponse.ok) {
+        const syncData = await syncResponse.json();
+        console.log(`✅ Sincronização concluída:`, syncData);
+        
+        if (syncData.success && syncData.videos_count > 0) {
+          toast.success(`Sincronização: ${syncData.videos_count} vídeos encontrados`);
+          
+          // Recarregar vídeos após sincronização
+          const response = await fetch(`/api/videos?folder_id=${selectedFolder}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const data = await response.json();
+          
+          if (Array.isArray(data)) {
+            setVideos(data);
+          }
+        }
+      }
+
+    } catch (syncError) {
+      console.warn('Erro na sincronização:', syncError);
     }
   };
 
@@ -429,16 +440,16 @@ const GerenciarVideos: React.FC = () => {
   const buildWowzaDirectUrl = (video: Video) => {
     if (!video.url) return '';
 
-    // Usar URL direta baseada no padrão fornecido
-    return video.url;
+    // Usar nova API para construir URL
+    return `/api/videos/view-url?video_id=${video.id}`;
   };
 
   // Função para construir URL HLS do Wowza
   const buildWowzaHLSUrl = (video: Video) => {
     if (!video.url) return '';
 
-    // Usar URL direta baseada no padrão fornecido
-    return video.url;
+    // Usar nova API para construir URL
+    return `/api/videos/view-url?video_id=${video.id}`;
   };
 
   const openVideoPlayer = (video: Video) => {
@@ -458,7 +469,7 @@ const GerenciarVideos: React.FC = () => {
       return;
     }
 
-    // Construir URL direta baseada no padrão
+    // Construir URL direta baseada no padrão fornecido
     const cleanPath = video.url.replace(/^\/+/, '').replace(/^(content\/|streaming\/)?/, '');
     const pathParts = cleanPath.split('/');
     
@@ -479,36 +490,9 @@ const GerenciarVideos: React.FC = () => {
   };
 
   const downloadVideo = (video: Video) => {
-    if (!video.url) {
-      toast.error('URL de download não disponível');
-      return;
-    }
-
-    // Construir URL direta para download
-    const cleanPath = video.url.replace(/^\/+/, '').replace(/^(content\/|streaming\/)?/, '');
-    const pathParts = cleanPath.split('/');
-    
-    if (pathParts.length >= 3) {
-      const userLogin = pathParts[0];
-      const folderName = pathParts[1];
-      const fileName = pathParts[2];
-      
-      const finalFileName = fileName.endsWith('.mp4') ? fileName : fileName.replace(/\.[^/.]+$/, '.mp4');
-      const isProduction = window.location.hostname !== 'localhost';
-      const domain = isProduction ? 'samhost.wcore.com.br' : 'stmv1.udicast.com';
-      
-      const downloadUrl = `https://${domain}:1443/play.php?login=${userLogin}&video=${folderName}/${finalFileName}`;
-      
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = video.nome;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      toast.success('Download iniciado!');
-    } else {
-      toast.error('Formato de URL inválido para download');
-    }
+    // Usar mesma lógica do openVideoInNewTab para download
+    openVideoInNewTab(video);
+    toast.success('Abrindo vídeo para download!');
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -1136,7 +1120,7 @@ const GerenciarVideos: React.FC = () => {
               )}
             </div>
 
-            {/* Player HTML5 Simples */}
+            {/* Player HTML5 com URL direta do Wowza */}
             <div className={`w-full h-full ${isFullscreen ? 'p-0' : 'p-4 pt-16'}`}>
               <SimpleDirectPlayer
                 src={currentVideo.url}
@@ -1144,22 +1128,22 @@ const GerenciarVideos: React.FC = () => {
                 autoplay
                 controls
                 className="w-full h-full"
-                onError={(e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+                onError={(e) => {
                   console.error('Erro no player:', e);
-                  // Abrir em nova aba diretamente
+                  // Fallback: abrir em nova aba
                   openVideoInNewTab(currentVideo);
                 }}
                 onReady={() => {
-                  console.log('Player de conversão pronto');
+                  console.log('Player pronto para reprodução');
                 }}
               />
             </div>
 
             {/* Informações técnicas */}
             <div className="absolute bottom-4 left-4 z-20 bg-black bg-opacity-60 text-white px-3 py-2 rounded-lg text-xs">
-              <p>Sistema: Visualização Otimizada</p>
-              <p>Formato: Sistema Padronizado</p>
-              <p>URL: play.php (porta 1443)</p>
+              <p>Player: Direto (Otimizado)</p>
+              <p>URL: https://domain:1443/play.php</p>
+              <p>Formato: MP4 Direto</p>
             </div>
           </div>
         </div>
@@ -1172,15 +1156,16 @@ const GerenciarVideos: React.FC = () => {
           <div>
             <h3 className="text-green-900 font-medium mb-2">🎯 Sistema de Visualização Otimizado</h3>
             <ul className="text-green-800 text-sm space-y-1">
-              <li>• <strong>URLs padronizadas:</strong> Formato https://dominio:1443/play.php?login=usuario&video=pasta/arquivo.mp4</li>
+              <li>• <strong>Player Direto:</strong> URLs diretas para máxima performance</li>
+              <li>• <strong>Formato padrão:</strong> https://domain:1443/play.php?login=usuario&video=pasta/arquivo.mp4</li>
               <li>• <strong>Análise automática:</strong> Bitrate, codec e resolução detectados automaticamente</li>
-              <li>• <strong>Otimização recomendada:</strong> Mesmo vídeos compatíveis podem ser otimizados</li>
+              <li>• <strong>Carregamento otimizado:</strong> Dados carregados diretamente do banco</li>
+              <li>• <strong>Sincronização inteligente:</strong> Apenas quando necessário</li>
               <li>• <strong>Sanitização automática:</strong> Nomes de pastas convertidos para minúsculas sem acentos</li>
-              <li>• <strong>Domínio dinâmico:</strong> URLs baseadas no servidor configurado no banco de dados</li>
+              <li>• <strong>Performance melhorada:</strong> Menos chamadas de API, carregamento mais rápido</li>
               <li>• <strong>Gerenciamento de pastas:</strong> Criação, edição e exclusão sincronizada com servidor</li>
-              <li>• <strong>Sincronização automática:</strong> Pastas e vídeos sempre em sincronia</li>
+              <li>• <strong>Player simplificado:</strong> HTML5 puro com URLs diretas</li>
               <li>• <strong>Monitoramento de espaço:</strong> Controle em tempo real do uso de armazenamento</li>
-              <li>• <strong>Conversão inteligente:</strong> Sistema detecta e recomenda otimizações necessárias</li>
               <li>• <strong>Porta padrão:</strong> 1443 para todas as visualizações</li>
             </ul>
           </div>

@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useStream } from '../context/StreamContext';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, X, SkipForward, SkipBack } from 'lucide-react';
 import Hls from 'hls.js';
-import SimpleHTML5Player from './SimpleHTML5Player';
+import SimpleDirectPlayer from './SimpleDirectPlayer';
 
 interface VideoPlayerProps {
   playlistVideo?: {
@@ -341,20 +341,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     obsStreamActive ? obsStreamUrl : '';
 
   return (
-    <SimpleHTML5Player
+    <SimpleDirectPlayer
       src={videoSrc}
       title={videoTitle}
-      isLive={isLive}
       autoplay={autoplay}
       controls={controls}
       className={`${className} ${height}`}
       onEnded={onVideoEnd}
       onError={(error) => {
         console.error('Erro no player:', error);
-        // Em caso de erro, tentar abrir em nova aba
-        if (videoSrc) {
-          window.open(videoSrc, '_blank');
-        }
       }}
     />
   );

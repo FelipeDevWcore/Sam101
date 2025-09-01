@@ -161,6 +161,7 @@ router.get('/', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'folder_id é obrigatório' });
     }
 
+    console.log(`📊 Carregando vídeos - Usuário: ${userId}, Pasta: ${folderId}`);
     // Buscar dados da pasta na nova tabela folders
     const [folderRows] = await db.execute(
       'SELECT nome_sanitizado, servidor_id, espaco_usado FROM folders WHERE id = ? AND user_id = ?',
@@ -524,6 +525,7 @@ router.post('/upload', authMiddleware, upload.single('video'), async (req, res) 
     
     if (folderRows.length === 0) {
       console.log(`❌ Pasta ${folderId} não encontrada para usuário ${userId}`);
+      console.log(`❌ Pasta ${folderId} não encontrada para usuário ${userId}`);
       await fs.unlink(req.file.path).catch(() => {});
       return res.status(404).json({ error: 'Pasta não encontrada' });
     }
@@ -534,15 +536,6 @@ router.post('/upload', authMiddleware, upload.single('video'), async (req, res) 
       [userId]
     );
     
-    if (userRows.length === 0) {
-      console.log(`❌ Usuário ${userId} não encontrado`);
-      await fs.unlink(req.file.path).catch(() => {});
-      return res.status(404).json({ error: 'Usuário não encontrado' });
-    }
-    
-    const folderData = folderRows[0];
-    const userData = userRows[0];
-    const folderName = folderData.nome_sanitizado;
     const serverId = folderData.servidor_id || 1;
     
     console.log(`📁 Pasta encontrada: ${folderName}, Servidor: ${serverId}`);
@@ -570,7 +563,7 @@ router.post('/upload', authMiddleware, upload.single('video'), async (req, res) 
     try {
       // Garantir que estrutura completa do usuário existe
       const structureResult = await SSHManager.createCompleteUserStructure(serverId, userLogin, {
-        bitrate: req.user.bitrate || 2500,
+    // Se não encontrou vídeos no banco, tentar sincronizar
         espectadores: req.user.espectadores || 100,
         status_gravando: 'nao'
       });
@@ -900,17 +893,6 @@ router.get('/content/*', authMiddleware, async (req, res) => {
     
     let wowzaUrl;
     if (isStreamFile) {
-      // Para streams HLS - verificar se arquivo MP4 existe, senão usar original
-      wowzaUrl = `http://${wowzaHost}:1935/vod/_definst_/mp4:${userLogin}/${folderName}/${finalFileName}/playlist.m3u8`;
-    } else {
-      // Para arquivos diretos - tentar MP4 primeiro
-      wowzaUrl = `http://${wowzaUser}:${wowzaPassword}@${wowzaHost}:${wowzaPort}/content/${userLogin}/${folderName}/${finalFileName}`;
-    }
-    
-    console.log(`🔗 Redirecionando para Wowza dinâmico (${wowzaHost}): ${wowzaUrl}`);
-    
-    try {
-      const requestHeaders = {
         'Range': req.headers.range || '',
         'User-Agent': 'Streaming-System/1.0',
         'Accept': '*/*',
@@ -937,65 +919,6 @@ router.get('/content/*', authMiddleware, async (req, res) => {
           const originalResponse = await fetch(originalUrl, {
             method: req.method,
             headers: requestHeaders,
-            timeout: 30000
-          });
-          
-          if (originalResponse.ok) {
-            console.log(`✅ Servindo arquivo original do Wowza: ${originalUrl}`);
-            originalResponse.headers.forEach((value, key) => {
-              if (!res.headersSent) {
-                res.setHeader(key, value);
-              }
-            });
-            return originalResponse.body.pipe(res);
-          }
-        }
-        
-        return res.status(404).json({ 
-          error: 'Vídeo não encontrado',
-          details: 'O arquivo não foi encontrado no servidor Wowza',
-          attempted_paths: [
-            `${userLogin}/${folderName}/${finalFileName}`,
-            finalFileName !== fileName ? `${userLogin}/${folderName}/${fileName}` : null
-          ].filter(Boolean)
-        });
-      }
-      
-      // Repassar headers do Wowza
-      wowzaResponse.headers.forEach((value, key) => {
-        if (!res.headersSent) {
-          res.setHeader(key, value);
-        }
-      });
-      
-      console.log(`✅ Servindo vídeo do Wowza: ${wowzaUrl}`);
-      
-      // Pipe da resposta do Wowza para o cliente
-      wowzaResponse.body.pipe(res);
-      
-    } catch (fetchError) {
-      console.error('Erro ao conectar com Wowza:', fetchError);
-      return res.status(503).json({ 
-        error: 'Servidor de vídeo temporariamente indisponível',
-        details: 'Não foi possível conectar ao servidor de streaming'
-      });
-    }
-    
-  } catch (err) {
-    console.error('Erro no proxy de vídeo:', err);
-    res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
-  }
-});
-
-router.delete('/:id', authMiddleware, async (req, res) => {
-  try {
-    const videoId = req.params.id;
-    const userId = req.user.id;
-    const userLogin = req.user.usuario || `user_${userId}`;
-
-    // Buscar dados do vídeo
-    const [videoRows] = await db.execute(
-      'SELECT caminho, nome, tamanho_arquivo, pasta FROM videos WHERE id = ? AND (codigo_cliente = ? OR codigo_cliente IN (SELECT codigo FROM streamings WHERE codigo_cliente = ?))',
       [videoId, userId, userId]
     );
     if (videoRows.length === 0) {
@@ -1003,6 +926,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     }
 
     const { caminho, tamanho_arquivo, pasta } = videoRows[0];
+    
 
     if (!caminho.includes(`/${userLogin}/`)) {
       return res.status(403).json({ error: 'Acesso negado' });
@@ -1016,28 +940,23 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     const serverId = serverRows.length > 0 ? serverRows[0].servidor_id : 1;
 
     let fileSize = tamanho_arquivo || 0;
-    // Estrutura correta: verificar se já está no formato correto
     const remotePath = caminho.startsWith('/home/streaming') ? 
-      caminho : `/home/streaming/${caminho}`;
 
     // Verificar tamanho real do arquivo via SSH, se necessário
-    if (!fileSize) {
       try {
         const fileInfo = await SSHManager.getFileInfo(serverId, remotePath);
         fileSize = fileInfo.exists ? fileInfo.size : 0;
       } catch (err) {
         console.warn('Não foi possível verificar tamanho do arquivo via SSH:', err.message);
-      }
+          // Formato correto
     }
 
-    // Remover arquivo via SSH
     try {
-      await SSHManager.deleteFile(serverId, remotePath);
+      // Construir URL otimizada baseada na estrutura
       console.log(`✅ Arquivo remoto removido: ${remotePath}`);
       
       // Atualizar arquivo SMIL do usuário após remoção
       try {
-        const PlaylistSMILService = require('../services/PlaylistSMILService');
         await PlaylistSMILService.updateUserSMIL(userId, userLogin, serverId);
       } catch (smilError) {
         console.warn('Erro ao atualizar arquivo SMIL:', smilError.message);

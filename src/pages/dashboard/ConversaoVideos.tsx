@@ -1049,7 +1049,8 @@ const ConversaoVideos: React.FC = () => {
           <div>
             <h3 className="text-blue-900 font-medium mb-2">🎯 Sistema de Otimização de Vídeos</h3>
             <ul className="text-blue-800 text-sm space-y-1">
-              <li>• <strong>Todos os vídeos</strong> são listados, independente do formato</li>
+              <li>• <strong>Carregamento otimizado:</strong> Dados carregados diretamente do banco para melhor performance</li>
+              <li>• <strong>Sincronização inteligente:</strong> Apenas quando necessário ou solicitado</li>
               <li>• <strong>Análise automática:</strong> Bitrate, codec e resolução detectados via FFprobe</li>
               <li>• <strong>Compatibilidade rigorosa:</strong> Apenas MP4 com H264/H265 e bitrate dentro do limite são aceitos</li>
               <li>• <strong>Status visual:</strong> Verde (Otimizado), Vermelho (Necessário Conversão - não pode usar)</li>
@@ -1058,10 +1059,11 @@ const ConversaoVideos: React.FC = () => {
               <li>• <strong>Otimização inteligente:</strong> Mantenha Full HD com bitrate baixo para economizar espaço</li>
               <li>• <strong>Limite respeitado:</strong> Apenas qualidades dentro do seu plano são permitidas</li>
               <li>• <strong>Bloqueio automático:</strong> Vídeos incompatíveis não podem ser reproduzidos</li>
-              <li>• <strong>Player HTML5:</strong> Visualização direta de todos os vídeos</li>
+              <li>• <strong>Player Direto:</strong> URLs diretas para máxima performance (porta 1443)</li>
               <li>• <strong>Exemplo prático:</strong> Full HD (1920x1080) com 1000 kbps = boa qualidade, arquivo menor</li>
               <li>• <strong>Formatos aceitos:</strong> Apenas MP4 com codec H264 ou H265</li>
               <li>• <strong>Bitrate máximo:</strong> Respeitado conforme limite do plano do usuário</li>
+              <li>• <strong>Performance melhorada:</strong> Menos chamadas de API, carregamento mais rápido</li>
             </ul>
           </div>
         </div>

@@ -11,6 +11,7 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
 
+    console.log(`📁 Carregando pastas para usuário: ${userId}`);
     // Buscar pastas do usuário na nova tabela folders
     const [rows] = await db.execute(
       `SELECT 
@@ -21,15 +22,17 @@ router.get('/', authMiddleware, async (req, res) => {
         servidor_id,
         espaco_usado,
         data_criacao,
-        status
+        status,
+        (SELECT COUNT(*) FROM videos WHERE pasta = folders.id AND codigo_cliente = ?) as video_count_db
        FROM folders 
        WHERE (user_id = ? OR user_id IN (
          SELECT codigo_cliente FROM streamings WHERE codigo = ?
        )) AND status = 1
        ORDER BY data_criacao DESC`,
-      [userId, userId]
+      [userId, userId, userId]
     );
 
+    console.log(`📊 Encontradas ${rows.length} pastas para usuário ${userId}`);
     res.json(rows);
   } catch (err) {
     console.error('Erro ao buscar pastas:', err);

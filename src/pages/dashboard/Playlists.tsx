@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, PlusCircle, X, Edit2, Trash2, Play, Minimize, Maximize } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
-import SimpleHTML5Player from '../../components/SimpleHTML5Player';
+import SimpleDirectPlayer from '../../components/SimpleDirectPlayer';
 
 import {
   DndContext,
@@ -83,26 +83,13 @@ const Playlists: React.FC = () => {
   const buildVideoUrl = (url: string) => {
     if (!url) return '';
     
-    // Se já é uma URL completa, usar como está
-    if (url.startsWith('http')) {
-      return url;
-    }
-    
-
-    // Para o novo sistema, usar API para obter URL correta
-    return `/api/videos/view-url?path=${encodeURIComponent(url)}`;
+    // Usar URL direta do vídeo
+    return url;
   };
 
   // Função otimizada para vídeos SSH
   const buildOptimizedSSHUrl = (url: string) => {
-    if (!url.includes('/api/videos-ssh/stream/')) return url;
-    
-    const videoId = url.split('/stream/')[1]?.split('?')[0];
-    if (videoId) {
-      const token = localStorage.getItem('auth_token');
-      return `/api/videos-ssh/proxy-stream/${videoId}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-    }
-    
+    // Usar URL direta
     return url;
   };
   
@@ -556,8 +543,10 @@ const Playlists: React.FC = () => {
       if (urlResponse.ok) {
         const urlData = await urlResponse.json();
         if (urlData.success && urlData.view_url) {
-          setCurrentVideoUrl(urlData.view_url);
+          setCurrentVideoUrl(videos[0].url || '');
         }
+      } else {
+        setCurrentVideoUrl(videos[0].url || '');
       }
       
       setVideoPlayerModalOpen(true);
@@ -579,11 +568,12 @@ const Playlists: React.FC = () => {
       .then(response => response.json())
       .then(data => {
         if (data.success && data.view_url) {
-          setCurrentVideoUrl(data.view_url);
+          setCurrentVideoUrl(playlistVideosToPlay[nextIndex].url || '');
         }
       })
       .catch(error => {
         console.error('Erro ao obter URL do próximo vídeo:', error);
+        setCurrentVideoUrl(playlistVideosToPlay[nextIndex].url || '');
       });
     } else {
       // Repetir playlist do início
@@ -596,11 +586,12 @@ const Playlists: React.FC = () => {
       .then(response => response.json())
       .then(data => {
         if (data.success && data.view_url) {
-          setCurrentVideoUrl(data.view_url);
+          setCurrentVideoUrl(playlistVideosToPlay[0].url || '');
         }
       })
       .catch(error => {
         console.error('Erro ao obter URL do primeiro vídeo:', error);
+        setCurrentVideoUrl(playlistVideosToPlay[0].url || '');
       });
     }
   };
@@ -610,19 +601,8 @@ const Playlists: React.FC = () => {
       const prevIndex = playlistPlayerIndex - 1;
       setPlaylistPlayerIndex(prevIndex);
       
-      // Obter URL do vídeo anterior usando nova API
-      fetch(`/api/videos/view-url?path=${encodeURIComponent(playlistVideosToPlay[prevIndex].url || '')}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` }
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success && data.view_url) {
-          setCurrentVideoUrl(data.view_url);
-        }
-      })
-      .catch(error => {
-        console.error('Erro ao obter URL do vídeo anterior:', error);
-      });
+      // Usar URL direta
+      setCurrentVideoUrl(playlistVideosToPlay[prevIndex].url || '');
     }
   };
 
@@ -631,19 +611,8 @@ const Playlists: React.FC = () => {
       const nextIndex = playlistPlayerIndex + 1;
       setPlaylistPlayerIndex(nextIndex);
       
-      // Obter URL do próximo vídeo usando nova API
-      fetch(`/api/videos/view-url?path=${encodeURIComponent(playlistVideosToPlay[nextIndex].url || '')}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` }
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success && data.view_url) {
-          setCurrentVideoUrl(data.view_url);
-        }
-      })
-      .catch(error => {
-        console.error('Erro ao obter URL do próximo vídeo:', error);
-      });
+      // Usar URL direta
+      setCurrentVideoUrl(playlistVideosToPlay[nextIndex].url || '');
     }
   };
 
@@ -929,10 +898,9 @@ const Playlists: React.FC = () => {
 
             {/* Player Universal */}
             <div className={`w-full h-full ${isFullscreen ? 'p-0' : 'p-4 pt-16'}`}>
-              <SimpleHTML5Player
+              <SimpleDirectPlayer
                 src={currentVideoUrl}
                 title={playlistVideosToPlay[playlistPlayerIndex]?.nome}
-                isLive={false}
                 autoplay={true}
                 controls
                 className="w-full h-full"
@@ -940,7 +908,6 @@ const Playlists: React.FC = () => {
                 onError={(error) => {
                   console.error('Erro no player:', error);
                   toast.error('Erro ao carregar vídeo');
-                }}
                 onReady={() => {
                   console.log('Player de playlist pronto');
                 }}
